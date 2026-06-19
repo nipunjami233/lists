@@ -7,7 +7,7 @@ import LoginScreen from '@/components/LoginScreen'
 import ListsScreen from '@/components/ListsScreen'
 import ListScreen from '@/components/ListScreen'
 
-type SelectedList = { id: string; name: string }
+type SelectedList = { id: string; name: string; household_id?: string | null }
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null)
@@ -31,7 +31,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-green-400 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-rose-300 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -42,7 +42,7 @@ export default function Home() {
     return (
       <ListsScreen
         session={session}
-        onSelectList={list => setSelectedList({ id: list.id, name: list.name })}
+        onSelectList={list => setSelectedList({ id: list.id, name: list.name, household_id: list.household_id })}
       />
     )
   }
@@ -52,6 +52,7 @@ export default function Home() {
       session={session}
       listId={selectedList.id}
       listName={selectedList.name}
+      householdId={selectedList.household_id}
       onBack={() => setSelectedList(null)}
     />
   )

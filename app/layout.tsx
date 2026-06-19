@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#10B981",
+  themeColor: "#FFF7F5",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -38,7 +38,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className="h-full bg-gray-50">{children}</body>
+      <body className="h-full bg-[var(--background)]">{children}</body>
     </html>
   );
 }

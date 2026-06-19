@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import EmojiPicker from './EmojiPicker'
+import { SheetFrame } from './ui'
+import { ChevronLeft, ChevronRight, Pencil, Smile, Trash2 } from 'lucide-react'
 
 type List = {
   id: string
@@ -25,27 +27,20 @@ export default function ListActionSheet({
   const [pickingEmoji, setPickingEmoji] = useState(false)
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40" />
-
-      <div
-        className="relative w-full max-w-lg mx-auto bg-white rounded-t-3xl pb-10 animate-sheet-up"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 rounded-full bg-gray-300" />
-        </div>
-
-        <div className="px-6 pb-3 border-b border-gray-100 flex items-center gap-3">
+    <SheetFrame onClose={onClose}>
+        <div className="px-6 pb-3 border-b border-rose-50 flex items-center gap-3">
           <span className="text-2xl">{list.emoji ?? '📋'}</span>
-          <p className="text-base font-semibold text-gray-900 truncate">{list.name}</p>
+          <p className="text-base font-bold text-stone-900 truncate">{list.name}</p>
         </div>
 
         {pickingEmoji ? (
           <>
             <div className="px-2 pt-2 pb-1 flex items-center justify-between">
-              <button onClick={() => setPickingEmoji(false)} className="text-green-500 text-sm px-3 py-2">‹ Back</button>
-              <p className="text-xs uppercase tracking-wider text-gray-400 pr-3">Pick emoji</p>
+              <button onClick={() => setPickingEmoji(false)} className="inline-flex items-center gap-1 text-rose-500 text-sm px-3 py-2">
+                <ChevronLeft size={16} />
+                Back
+              </button>
+              <p className="text-xs uppercase tracking-wider text-stone-400 pr-3">Pick emoji</p>
             </div>
             <div className="px-4 pb-2">
               <EmojiPicker
@@ -56,13 +51,12 @@ export default function ListActionSheet({
           </>
         ) : (
           <div className="px-2 py-2">
-            <SheetButton icon="✎" label="Rename" onClick={() => { onRename(); onClose() }} />
-            <SheetButton icon={list.emoji ?? '📋'} label="Change emoji" onClick={() => setPickingEmoji(true)} showChevron />
-            <SheetButton icon="🗑" label="Delete list" danger onClick={() => { onDelete(); onClose() }} />
+            <SheetButton icon={<Pencil size={19} />} label="Rename" onClick={() => { onRename(); onClose() }} />
+            <SheetButton icon={<Smile size={20} />} label="Change emoji" onClick={() => setPickingEmoji(true)} showChevron />
+            <SheetButton icon={<Trash2 size={20} />} label="Delete list" danger onClick={() => { onDelete(); onClose() }} />
           </div>
         )}
-      </div>
-    </div>
+    </SheetFrame>
   )
 }
 
@@ -76,10 +70,10 @@ function SheetButton({
   showChevron?: boolean
 }) {
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-4 px-4 py-4 rounded-xl active:bg-gray-100">
+    <button onClick={onClick} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl active:bg-rose-50">
       <span className="text-xl w-6 flex justify-center">{icon}</span>
-      <span className={`text-base flex-1 text-left ${danger ? 'text-red-500' : 'text-gray-900'}`}>{label}</span>
-      {showChevron && <span className="text-gray-300 text-lg">›</span>}
+      <span className={`text-base flex-1 text-left ${danger ? 'text-red-500' : 'text-stone-900'}`}>{label}</span>
+      {showChevron && <ChevronRight size={18} className="text-stone-300" />}
     </button>
   )
 }

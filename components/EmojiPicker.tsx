@@ -10,13 +10,13 @@ export default function EmojiPicker({
   onSelect: (emoji: string) => void
 }) {
   return (
-    <div className="grid grid-cols-6 gap-2 p-2 bg-white border border-gray-200 rounded-xl">
+    <div className="grid grid-cols-6 gap-2 p-2 bg-white border border-rose-100 rounded-2xl shadow-sm shadow-rose-100">
       {EMOJIS.map(e => (
         <button
           key={e}
           type="button"
           onClick={() => onSelect(e)}
-          className={`text-2xl py-2 rounded-lg ${selected === e ? 'bg-green-100' : 'active:bg-gray-100'}`}
+          className={`text-2xl py-2 rounded-xl ${selected === e ? 'bg-rose-100' : 'active:bg-rose-50'}`}
         >
           {e}
         </button>

@@ -3,19 +3,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { getHouseholdAccess, getListSummaries } from '@/lib/household'
+import type { HouseholdAccess, ListSummary } from '@/lib/types'
 import EmojiPicker from './EmojiPicker'
 import ListActionSheet from './ListActionSheet'
 import { APP_NAME, APP_TAGLINE } from '@/lib/config'
+import { AppShell, Badge, Button, TextInput } from './ui'
+import { LogOut, MoreHorizontal, Plus, Sparkles } from 'lucide-react'
 
-type List = {
-  id: string
-  name: string
-  emoji: string | null
-  created_at: string
-  item_count?: number
-  unchecked_count?: number
-  last_activity?: string | null
-}
+type List = ListSummary
 
 const SAMPLE_LISTS = [
   { name: 'Groceries', emoji: '🛒' },
@@ -35,6 +31,7 @@ export default function ListsScreen({
 }) {
   const [lists, setLists] = useState<List[]>([])
   const [loading, setLoading] = useState(true)
+  const [access, setAccess] = useState<HouseholdAccess | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newEmoji, setNewEmoji] = useState<string>('📋')
@@ -49,7 +46,25 @@ export default function ListsScreen({
   const longPressFired = useRef<Record<string, boolean>>({})
 
   useEffect(() => {
-    fetchLists()
+    let active = true
+
+    async function init() {
+      try {
+        const householdAccess = await getHouseholdAccess(session.user.id)
+        if (!active) return
+        setAccess(householdAccess)
+        if (householdAccess.status === 'none') {
+          setLoading(false)
+          return
+        }
+        await fetchLists()
+      } catch {
+        if (active) setLoading(false)
+      }
+    }
+
+    init()
+
     const channel = supabase
       .channel('lists-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lists' }, fetchLists)
@@ -65,40 +80,12 @@ export default function ListsScreen({
       }
     }
 
-    return () => { supabase.removeChannel(channel) }
-  }, [])
+    return () => { active = false; supabase.removeChannel(channel) }
+  }, [session.user.id])
 
   async function fetchLists() {
-    const { data: listsData } = await supabase
-      .from('lists').select('*').order('created_at', { ascending: true })
-    if (!listsData) return
-
-    const withCounts = await Promise.all(
-      listsData.map(async list => {
-        const { count: total } = await supabase
-          .from('items').select('*', { count: 'exact', head: true }).eq('list_id', list.id)
-        const { count: unchecked } = await supabase
-          .from('items').select('*', { count: 'exact', head: true }).eq('list_id', list.id).eq('checked', false)
-        const { data: latest } = await supabase
-          .from('items').select('updated_at').eq('list_id', list.id)
-          .order('updated_at', { ascending: false }).limit(1).maybeSingle()
-        return {
-          ...list,
-          item_count: total ?? 0,
-          unchecked_count: unchecked ?? 0,
-          last_activity: latest?.updated_at ?? null,
-        }
-      })
-    )
-
-    withCounts.sort((a, b) => {
-      if (!a.last_activity && !b.last_activity) return a.name.localeCompare(b.name)
-      if (!a.last_activity) return 1
-      if (!b.last_activity) return -1
-      return b.last_activity.localeCompare(a.last_activity)
-    })
-
-    setLists(withCounts)
+    const summaries = await getListSummaries()
+    setLists(summaries)
     setLoading(false)
   }
 
@@ -107,7 +94,10 @@ export default function ListsScreen({
     const emoji = presetEmoji ?? newEmoji
     if (!name) return
     setNewName(''); setNewEmoji('📋'); setCreating(false)
-    await supabase.from('lists').insert({ name, emoji })
+    const payload = access?.status === 'member'
+      ? { name, emoji, household_id: access.householdId }
+      : { name, emoji }
+    await supabase.from('lists').insert(payload)
   }
 
   async function deleteList(id: string) {
@@ -163,33 +153,60 @@ export default function ListsScreen({
 
   const userInitial = (session.user.email?.[0] ?? '?').toUpperCase()
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
+  if (!loading && access?.status === 'none') {
+    return (
+      <AppShell>
+        <div className="safe-top flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-rose-100 text-3xl">💌</div>
+          <h1 className="text-3xl font-bold text-stone-900">{APP_NAME}</h1>
+          <p className="mt-2 text-sm leading-6 text-stone-500">
+            You are signed in, but this account has not been added to the NK Household yet.
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-8"
+            onClick={() => supabase.auth.signOut()}
+          >
+            <LogOut size={18} />
+            Sign out
+          </Button>
+        </div>
+      </AppShell>
+    )
+  }
 
-      <div className="px-5 pt-14 pb-6 flex items-start justify-between">
+  return (
+    <AppShell>
+
+      <div className="safe-top px-5 pb-5 flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">{APP_NAME}</h1>
-          <p className="text-gray-400 text-sm mt-1">{APP_TAGLINE}</p>
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-rose-500 shadow-sm shadow-rose-100">
+            <Sparkles size={13} />
+            {access?.status === 'member' ? access.householdName : 'Recovered preview'}
+          </div>
+          <h1 className="text-4xl font-black tracking-normal text-stone-900">{APP_NAME}</h1>
+          <p className="text-stone-500 text-sm mt-1">{APP_TAGLINE}</p>
         </div>
         <div className="relative">
           <button
             onClick={() => setShowProfile(!showProfile)}
-            className="w-10 h-10 rounded-full bg-green-400 text-white font-semibold flex items-center justify-center"
+            className="w-11 h-11 rounded-2xl bg-gradient-to-br from-rose-400 to-orange-300 text-white font-bold flex items-center justify-center shadow-sm shadow-rose-200"
           >
             {userInitial}
           </button>
           {showProfile && (
             <>
               <div className="fixed inset-0 z-30" onClick={() => setShowProfile(false)} />
-              <div className="absolute right-0 top-12 z-40 bg-white rounded-xl shadow-lg border border-gray-100 min-w-[180px] overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100">
-                  <p className="text-xs text-gray-400">Signed in as</p>
-                  <p className="text-sm text-gray-900 truncate">{session.user.email}</p>
+              <div className="absolute right-0 top-12 z-40 bg-white rounded-2xl shadow-lg border border-rose-100 min-w-[210px] overflow-hidden">
+                <div className="px-4 py-3 border-b border-rose-50">
+                  <p className="text-xs text-stone-400">Signed in as</p>
+                  <p className="text-sm text-stone-900 truncate">{session.user.email}</p>
                 </div>
                 <button
                   onClick={() => supabase.auth.signOut()}
-                  className="w-full text-left px-4 py-3 text-sm text-red-500 active:bg-gray-100"
+                  className="w-full flex items-center gap-2 text-left px-4 py-3 text-sm text-red-500 active:bg-red-50"
                 >
+                  <LogOut size={16} />
                   Sign out
                 </button>
               </div>
@@ -200,8 +217,8 @@ export default function ListsScreen({
 
       {/* Hint - shown once */}
       {showHint && lists.length > 0 && (
-        <div className="mx-4 mb-3 px-4 py-2.5 bg-gray-900 text-white text-xs rounded-xl flex items-center gap-2">
-          <span>💡</span>
+        <div className="mx-4 mb-3 px-4 py-2.5 bg-stone-900 text-white text-xs rounded-2xl flex items-center gap-2 shadow-lg">
+          <Sparkles size={14} />
           <span>Long-press a list to rename, change emoji, or delete</span>
         </div>
       )}
@@ -209,27 +226,27 @@ export default function ListsScreen({
       <div className="flex-1 px-4 pb-10 space-y-2">
         {loading ? (
           <div className="flex justify-center mt-20">
-            <div className="w-8 h-8 border-4 border-green-400 border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-4 border-rose-300 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : lists.length === 0 && !creating ? (
           <div className="text-center mt-12 px-4">
             <p className="text-5xl mb-4">📋</p>
-            <p className="text-gray-700 text-lg font-semibold mb-1">Create your first list</p>
-            <p className="text-gray-400 text-sm mb-6">Pick one to get started, or make your own</p>
+            <p className="text-stone-700 text-lg font-semibold mb-1">Create your first list</p>
+            <p className="text-stone-400 text-sm mb-6">Pick one to get started, or make your own</p>
             <div className="space-y-2">
               {SAMPLE_LISTS.map(s => (
                 <button
                   key={s.name}
                   onClick={() => createList(s.name, s.emoji)}
-                  className="w-full flex items-center gap-3 bg-white px-4 py-4 rounded-xl active:bg-gray-50"
+                  className="w-full flex items-center gap-3 bg-white px-4 py-4 rounded-2xl shadow-sm shadow-rose-100 active:bg-rose-50"
                 >
                   <span className="text-2xl">{s.emoji}</span>
-                  <span className="flex-1 text-left text-base font-medium text-gray-900">{s.name}</span>
-                  <span className="text-gray-300">+</span>
+                  <span className="flex-1 text-left text-base font-medium text-stone-900">{s.name}</span>
+                  <Plus size={18} className="text-rose-300" />
                 </button>
               ))}
             </div>
-            <button onClick={() => setCreating(true)} className="mt-6 text-green-500 font-medium text-sm">
+            <button onClick={() => setCreating(true)} className="mt-6 text-rose-500 font-medium text-sm">
               Or create custom list
             </button>
           </div>
@@ -241,11 +258,11 @@ export default function ListsScreen({
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="text-3xl px-3 py-2 bg-white rounded-xl border border-gray-200"
+                      className="text-3xl px-3 py-2 bg-white rounded-2xl border border-rose-100"
                     >
                       {renameEmoji}
                     </button>
-                    <input
+                    <TextInput
                       autoFocus
                       type="text"
                       value={renameText}
@@ -254,11 +271,11 @@ export default function ListsScreen({
                         if (e.key === 'Enter') saveRename(list.id)
                         if (e.key === 'Escape') setRenamingId(null)
                       }}
-                      className="flex-1 px-4 py-4 rounded-xl border border-green-400 text-base outline-none bg-white"
+                      className="flex-1"
                     />
-                    <button onClick={() => saveRename(list.id)} className="px-5 bg-green-400 text-white font-semibold rounded-xl">
+                    <Button onClick={() => saveRename(list.id)} className="px-5">
                       Save
-                    </button>
+                    </Button>
                   </div>
                   <EmojiPicker selected={renameEmoji} onSelect={setRenameEmoji} />
                 </div>
@@ -271,16 +288,17 @@ export default function ListsScreen({
                   onTouchMove={() => handleListTouchMove(list)}
                   onTouchCancel={() => handleListTouchEnd(list)}
                   onContextMenu={e => { e.preventDefault(); setActionSheetList(list) }}
-                  className="w-full flex items-center gap-4 bg-white px-4 py-4 rounded-xl text-left active:bg-gray-50"
+                  className="w-full flex items-center gap-4 bg-white px-4 py-4 rounded-[1.4rem] text-left shadow-sm shadow-rose-100 active:bg-rose-50"
                 >
                   <span className="text-2xl">{list.emoji ?? '📋'}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-base font-semibold text-gray-900 truncate">{list.name}</p>
-                    <p className="text-sm text-gray-400">
+                    <p className="text-base font-bold text-stone-900 truncate">{list.name}</p>
+                    <p className="text-sm text-stone-400">
                       {list.unchecked_count} left · {list.item_count} total
                     </p>
                   </div>
-                  <span className="text-gray-300 text-lg">›</span>
+                  {list.unchecked_count === 0 && list.item_count > 0 && <Badge tone="green">Done</Badge>}
+                  <MoreHorizontal size={20} className="text-stone-300" />
                 </button>
               )
             ))}
@@ -288,10 +306,10 @@ export default function ListsScreen({
             {creating ? (
               <div className="space-y-2 pt-1">
                 <div className="flex gap-2">
-                  <button type="button" className="text-3xl px-3 py-2 bg-white rounded-xl border border-gray-200">
+                  <button type="button" className="text-3xl px-3 py-2 bg-white rounded-2xl border border-rose-100">
                     {newEmoji}
                   </button>
-                  <input
+                  <TextInput
                     autoFocus
                     type="text"
                     placeholder="List name..."
@@ -301,20 +319,20 @@ export default function ListsScreen({
                       if (e.key === 'Enter') createList()
                       if (e.key === 'Escape') { setCreating(false); setNewName(''); setNewEmoji('📋') }
                     }}
-                    className="flex-1 px-4 py-4 rounded-xl border border-gray-200 text-base outline-none focus:border-green-400 bg-white"
+                    className="flex-1"
                   />
-                  <button onClick={() => createList()} className="px-5 bg-green-400 text-white font-semibold rounded-xl">
+                  <Button onClick={() => createList()} className="px-5">
                     Add
-                  </button>
+                  </Button>
                 </div>
                 <EmojiPicker selected={newEmoji} onSelect={setNewEmoji} />
               </div>
             ) : (
               <button
                 onClick={() => setCreating(true)}
-                className="w-full py-4 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-base font-medium active:bg-gray-50"
+                className="w-full py-4 rounded-[1.4rem] border-2 border-dashed border-rose-200 text-rose-400 text-base font-semibold active:bg-rose-50"
               >
-                + New list
+                <span className="inline-flex items-center gap-2"><Plus size={18} /> New list</span>
               </button>
             )}
           </>
@@ -330,6 +348,6 @@ export default function ListsScreen({
           onDelete={() => deleteList(actionSheetList.id)}
         />
       )}
-    </div>
+    </AppShell>
   )
 }

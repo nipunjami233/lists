@@ -32,6 +32,8 @@ Go to [supabase.com](https://supabase.com), create a free account and a new proj
 ### 2. Run the database schema
 In your Supabase project, open the **SQL Editor** and run the contents of [`supabase/schema.sql`](supabase/schema.sql). This creates the tables, triggers, RLS policies, and realtime publications.
 
+For existing deployments, use the files in [`supabase/migrations`](supabase/migrations) instead of pasting the full schema. Test migrations against a Supabase branch or disposable project before production. Supabase branching requires a Pro plan; if branching is unavailable, take a database backup before applying migrations.
+
 ### 3. Disable email confirmation (optional, recommended for personal use)
 In Supabase: **Authentication → Providers → Email → toggle off "Confirm email"**. This way you can sign in immediately after creating an account without a confirmation email.
 
@@ -75,7 +77,7 @@ Open the deployed URL in Safari (iOS) or Chrome (Android), then **Share → Add 
 
 ## Authorization model
 
-The default RLS policies allow any authenticated user to read and write all lists and items. This is intentional for a small household where everyone is trusted. For a multi-tenant or per-user model, modify the policies in `schema.sql` to filter by `auth.uid()` and add `user_id` columns to the tables.
+The current schema uses a household membership model. Users must be present in `household_members` before they can read or write household lists, items, or item history. The first migration backfills all existing Supabase Auth users into the default `NK Household`.
 
 ## Personalization
 

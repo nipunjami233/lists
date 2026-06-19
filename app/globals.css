@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f9fafb;
-  --foreground: #171717;
+  --background: #fff7f5;
+  --foreground: #292524;
+  --nk-rose: #fb7185;
+  --nk-coral: #fb8b7b;
+  --nk-cream: #fff7ed;
+  --nk-success: #10b981;
 }
 
 @theme inline {
@@ -14,11 +18,26 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.safe-top {
+  padding-top: calc(1rem + env(safe-area-inset-top));
+}
+
+.safe-bottom {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
 }
 
 /* Flash animation for newly-arrived realtime items */
 @keyframes flash-in {
-  0%   { background-color: #fef3c7; transform: translateY(-12px); opacity: 0; }
+  0%   { background-color: #ffe4e6; transform: translateY(-12px); opacity: 0; }
   20%  { transform: translateY(0); opacity: 1; }
   100% { background-color: #ffffff; }
 }

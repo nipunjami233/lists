@@ -4,10 +4,25 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { inferCategory, CATEGORIES, CATEGORY_COLORS, CATEGORY_TEXT } from '@/lib/categories'
-import { getCachedItems, setCachedItems, queueOp, flushPendingOps } from '@/lib/cache'
+import { getCachedItems, setCachedItems, queueOp, flushPendingOps, getPendingOps } from '@/lib/cache'
+import { recordItemHistory, upsertRecurringItem } from '@/lib/household'
 import type { Item } from '@/lib/types'
 import ItemActionSheet from './ItemActionSheet'
 import UndoSnackbar from './UndoSnackbar'
+import { AppShell, Badge, Button, IconButton, TextInput } from './ui'
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  MoreHorizontal,
+  Plus,
+  Search,
+  ShoppingCart,
+  Star,
+  Trash2,
+  WifiOff,
+} from 'lucide-react'
 
 const SWIPE_THRESHOLD = 65
 const DIRECTION_LOCK_THRESHOLD = 8
@@ -32,11 +47,13 @@ export default function ListScreen({
   session,
   listId,
   listName,
+  householdId,
   onBack,
 }: {
   session: Session
   listId: string
   listName: string
+  householdId?: string | null
   onBack: () => void
 }) {
   const [items, setItems] = useState<Item[]>(() => getCachedItems(listId))
@@ -54,6 +71,9 @@ export default function ListScreen({
   const [recentlyAddedIds, setRecentlyAddedIds] = useState<Set<string>>(new Set())
   const [searchMode, setSearchMode] = useState(false)
   const [showSwipeHint, setShowSwipeHint] = useState(false)
+  const [showChecked, setShowChecked] = useState(false)
+  const [pendingCount, setPendingCount] = useState(() => getPendingOps(listId).length)
+  const [syncMessage, setSyncMessage] = useState('')
 
   // Touch state
   const touchStart = useRef<Record<string, { x: number; y: number; lock: 'h' | 'v' | null; longPressTimer: ReturnType<typeof setTimeout> | null }>>({})
@@ -62,6 +82,11 @@ export default function ListScreen({
 
   const inputRef = useRef<HTMLInputElement>(null)
   const knownItemIds = useRef<Set<string>>(new Set())
+
+  function queuePending(op: Parameters<typeof queueOp>[1]) {
+    queueOp(listId, op)
+    setPendingCount(getPendingOps(listId).length)
+  }
 
   // ── Data loading ──────────────────────────────────────────────
 
@@ -123,10 +148,15 @@ export default function ListScreen({
     const handleOnline = async () => {
       setIsOffline(false)
       const skipped = await flushPendingOps(listId)
+      setPendingCount(0)
       if (skipped > 0) setSyncConflict(true)
+      else setSyncMessage('Synced')
       await fetchItems()
     }
-    const handleOffline = () => setIsOffline(true)
+    const handleOffline = () => {
+      setIsOffline(true)
+      setSyncMessage('')
+    }
 
     if (typeof window !== 'undefined') {
       setIsOffline(!navigator.onLine)
@@ -154,6 +184,12 @@ export default function ListScreen({
     const t = setTimeout(() => setSyncConflict(false), 4000)
     return () => clearTimeout(t)
   }, [syncConflict])
+
+  useEffect(() => {
+    if (!syncMessage) return
+    const t = setTimeout(() => setSyncMessage(''), 2500)
+    return () => clearTimeout(t)
+  }, [syncMessage])
 
   function dismissHint() {
     if (showSwipeHint) {
@@ -213,7 +249,6 @@ export default function ListScreen({
     setInputText(''); setSuggestions([])
 
     // Dedupe against existing items + within the batch itself
-    const existingLower = new Set(items.map(i => i.name.toLowerCase()))
     const seen = new Set<string>()
     const toAdd: Item[] = []
     let unckeckedExisting: Item | null = null
@@ -272,11 +307,11 @@ export default function ListScreen({
     }, 1600)
 
     if (isOffline) {
-      toAdd.forEach(item => queueOp(listId, { type: 'add', item, queued_at: item.updated_at }))
+      toAdd.forEach(item => queuePending({ type: 'add', item, queued_at: item.updated_at }))
     } else {
       await supabase.from('items').insert(toAdd)
       for (const item of toAdd) {
-        await supabase.rpc('upsert_item_history', { item_name: item.name })
+        await recordItemHistory(item.name, householdId ?? null)
       }
     }
   }
@@ -292,7 +327,7 @@ export default function ListScreen({
     })
 
     if (isOffline) {
-      queueOp(listId, { type: 'toggle', id, checked: !currentChecked, queued_at: now })
+      queuePending({ type: 'toggle', id, checked: !currentChecked, queued_at: now })
     } else {
       await supabase.from('items').update({ checked: !currentChecked }).eq('id', id)
     }
@@ -328,7 +363,7 @@ export default function ListScreen({
     const ids = pendingDelete.items.map(i => i.id)
     setPendingDelete(null)
     if (isOffline) {
-      ids.forEach(id => queueOp(listId, { type: 'delete', id, queued_at: new Date().toISOString() }))
+      ids.forEach(id => queuePending({ type: 'delete', id, queued_at: new Date().toISOString() }))
     } else {
       await supabase.from('items').delete().in('id', ids)
     }
@@ -360,7 +395,7 @@ export default function ListScreen({
       setCachedItems(listId, next)
       return next
     })
-    if (isOffline) queueOp(listId, { type: 'rename', id, name, queued_at: now })
+    if (isOffline) queuePending({ type: 'rename', id, name, queued_at: now })
     else await supabase.from('items').update({ name }).eq('id', id)
   }
 
@@ -386,9 +421,7 @@ export default function ListScreen({
       else next.add(lower)
       return next
     })
-    await supabase
-      .from('item_history')
-      .upsert({ name: itemName, is_recurring: !isCurrentlyRecurring }, { onConflict: 'name' })
+    await upsertRecurringItem(itemName, !isCurrentlyRecurring, householdId ?? null)
   }
 
   async function addRegulars() {
@@ -424,7 +457,7 @@ export default function ListScreen({
     }, 1600)
 
     if (!isOffline) await supabase.from('items').insert(newItems)
-    else newItems.forEach(item => queueOp(listId, { type: 'add', item, queued_at: item.updated_at }))
+    else newItems.forEach(item => queuePending({ type: 'add', item, queued_at: item.updated_at }))
   }
 
   // ── Touch handlers (swipe + long-press) ──────────────────────
@@ -511,22 +544,22 @@ export default function ListScreen({
       >
         {/* Swipe hint - only on first item */}
         {isFirst && showSwipeHint && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none animate-pulse bg-gray-900/85 text-white text-xs px-3 py-1.5 rounded-full whitespace-nowrap">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none animate-pulse bg-stone-900/85 text-white text-xs px-3 py-1.5 rounded-full whitespace-nowrap">
             ← swipe to delete · check →
           </div>
         )}
 
         {/* Swipe backgrounds */}
-        <div className={`absolute inset-0 flex items-center px-5 bg-green-400 transition-opacity duration-100 ${delta > 30 ? 'opacity-100' : 'opacity-0'}`}>
-          <span className="text-white text-xl font-bold">✓</span>
+        <div className={`absolute inset-0 flex items-center px-5 bg-emerald-500 transition-opacity duration-100 ${delta > 30 ? 'opacity-100' : 'opacity-0'}`}>
+          <Check size={22} className="text-white" />
         </div>
         <div className={`absolute inset-0 flex items-center justify-end px-5 bg-red-400 transition-opacity duration-100 ${delta < -30 ? 'opacity-100' : 'opacity-0'}`}>
-          <span className="text-white text-xl font-bold">×</span>
+          <Trash2 size={21} className="text-white" />
         </div>
 
         {/* Item content */}
         <div
-          className={`relative z-10 flex items-center gap-3 bg-white py-4 pl-4 pr-3 ${item.checked ? 'opacity-40' : ''}`}
+          className={`relative z-10 flex items-center gap-3 bg-white py-4 pl-4 pr-3 shadow-sm shadow-rose-100 ${item.checked ? 'opacity-50' : ''}`}
           style={{
             transform: `translateX(${delta}px)`,
             transition: isSnapping ? 'transform 0.22s ease' : 'none',
@@ -540,10 +573,11 @@ export default function ListScreen({
           <button
             onClick={() => toggleItem(item.id, item.checked)}
             className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center border-2 ${
-              item.checked ? 'bg-green-400 border-green-400' : 'border-green-400'
+              item.checked ? 'bg-emerald-500 border-emerald-500' : 'border-rose-300'
             }`}
+            aria-label={item.checked ? 'Mark item as not picked' : 'Mark item as picked'}
           >
-            {item.checked && <span className="text-white text-xs font-bold">✓</span>}
+            {item.checked && <Check size={15} className="text-white" />}
           </button>
 
           {isRenaming ? (
@@ -556,16 +590,25 @@ export default function ListScreen({
                 if (e.key === 'Escape') setRenamingId(null)
               }}
               onBlur={() => saveRename(item.id)}
-              className={`flex-1 text-base outline-none border-b border-green-400 ${item.checked ? 'line-through text-gray-400' : 'text-gray-900'}`}
+              className={`flex-1 text-base outline-none border-b border-rose-300 ${item.checked ? 'line-through text-stone-400' : 'text-stone-900'}`}
             />
           ) : (
             <button
               onClick={() => setActionSheetItem(item)}
-              className={`flex-1 text-left text-base ${item.checked ? 'line-through text-gray-400' : 'text-gray-900'}`}
+              className={`flex-1 text-left text-base ${item.checked ? 'line-through text-stone-400' : 'text-stone-900'}`}
             >
               {item.name}
             </button>
           )}
+
+          <button
+            onClick={() => setActionSheetItem(item)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-stone-300 active:bg-rose-50"
+            aria-label={`More actions for ${item.name}`}
+            title={`More actions for ${item.name}`}
+          >
+            <MoreHorizontal size={19} />
+          </button>
         </div>
       </div>
     )
@@ -588,13 +631,14 @@ export default function ListScreen({
               <span className={`text-xs font-semibold uppercase tracking-wider ${CATEGORY_TEXT[category]}`}>
                 {category}
               </span>
+              <span className="text-xs font-medium text-stone-300">{groupItems.length}</span>
             </div>
             {groupItems.map((item, idx) => renderItem(item, gIdx === 0 && idx === 0))}
           </div>
         ))}
         {checked.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-gray-300 uppercase tracking-wider px-1 pt-4 pb-2">Done</p>
+            <p className="text-xs font-semibold text-stone-300 uppercase tracking-wider px-1 pt-4 pb-2">Done</p>
             {checked.map(item => renderItem(item))}
           </div>
         )}
@@ -604,44 +648,54 @@ export default function ListScreen({
 
   function renderEmptyState() {
     if (searchActive) {
-      return <p className="text-center text-gray-300 mt-16 text-base">No matches for &ldquo;{inputText}&rdquo;</p>
+      return <p className="text-center text-stone-300 mt-16 text-base">No matches for &ldquo;{inputText}&rdquo;</p>
     }
     if (recurringNames.size > 0) {
       return (
         <div className="text-center mt-20 px-6">
           <p className="text-5xl mb-4">📋</p>
-          <p className="text-gray-500 text-base mb-2">Your list is empty</p>
-          <p className="text-gray-400 text-sm">Tap <span className="text-amber-500 font-medium">+ Regulars</span> to add your usual items</p>
+          <p className="text-stone-600 text-base mb-2 font-semibold">Your list is empty</p>
+          <p className="text-stone-400 text-sm">Tap <span className="text-amber-500 font-medium">Regulars</span> to add your usual items</p>
         </div>
       )
     }
     return (
       <div className="text-center mt-20 px-6">
         <p className="text-5xl mb-4">🛒</p>
-        <p className="text-gray-500 text-base mb-2">Your list is empty</p>
-        <p className="text-gray-400 text-sm">Try adding &ldquo;Milk&rdquo; or &ldquo;Eggs&rdquo; to get started</p>
+        <p className="text-stone-600 text-base mb-2 font-semibold">Your list is empty</p>
+        <p className="text-stone-400 text-sm">Try adding &ldquo;Milk&rdquo; or &ldquo;Eggs&rdquo; to get started</p>
       </div>
     )
   }
 
   function renderNormalMode() {
     if (filteredItems.length === 0) return renderEmptyState()
+    const collapseChecked = !searchActive && checked.length > 8 && !showChecked
+
     return (
       <>
         {unchecked.map((item, idx) => renderItem(item, idx === 0))}
         {checked.length > 0 && (
           <>
             <div className="flex items-center justify-between pt-4 pb-2 px-1">
-              <p className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+              <button
+                onClick={() => setShowChecked(!showChecked)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-stone-300 uppercase tracking-wider"
+              >
                 Checked off ({checked.length})
-              </p>
-              {!searchActive && (
-                <button onClick={clearCheckedWithUndo} className="text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-500 font-medium">
+                {collapseChecked ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </button>
+              <div className="flex items-center gap-2">
+                {collapseChecked && <Badge tone="stone">Hidden</Badge>}
+                {!searchActive && (
+                <button onClick={clearCheckedWithUndo} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-xl bg-red-50 text-red-500 font-medium">
+                  <Trash2 size={13} />
                   Clear all
                 </button>
-              )}
+                )}
+              </div>
             </div>
-            {checked.map(item => renderItem(item))}
+            {!collapseChecked && checked.map(item => renderItem(item))}
           </>
         )}
       </>
@@ -651,74 +705,81 @@ export default function ListScreen({
   // ── Render ───────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
+    <AppShell>
 
       {syncConflict && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-sm px-4 py-2 rounded-full shadow-lg">
-          Some offline changes were out of sync — showing latest
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-stone-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
+          Some offline changes conflicted, so the latest saved version is showing.
+        </div>
+      )}
+
+      {syncMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-sm px-4 py-2 rounded-full shadow-lg">
+          {syncMessage}
         </div>
       )}
 
       {/* Header */}
-      <div className="px-5 pt-12 pb-3">
+      <div className="safe-top sticky top-0 z-20 bg-[var(--background)]/95 px-5 pb-3 backdrop-blur">
         {/* Back button on its own row */}
         <button
           onClick={onBack}
-          className="flex items-center gap-1 text-gray-500 text-sm font-medium mb-2 -ml-1 px-1 py-1 active:bg-gray-100 rounded-lg"
+          className="flex items-center gap-1 text-stone-500 text-sm font-medium mb-2 -ml-1 px-1 py-1 active:bg-rose-50 rounded-lg"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <ArrowLeft size={16} />
           Lists
         </button>
 
         <div className="flex items-start justify-between mb-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-bold text-gray-900 truncate">{listName}</h1>
+              <h1 className="text-3xl font-black text-stone-900 truncate">{listName}</h1>
               {isOffline && (
-                <span className="text-xs bg-red-100 text-red-500 font-medium px-2 py-0.5 rounded-full flex-shrink-0">Offline</span>
+                <Badge tone="red"><WifiOff size={12} className="mr-1" /> Offline</Badge>
               )}
             </div>
-            <p className="text-gray-400 text-sm mt-0.5">
+            <p className="text-stone-400 text-sm mt-0.5">
               {items.filter(i => !i.checked).length} item{items.filter(i => !i.checked).length !== 1 ? 's' : ''} left
+              {pendingCount > 0 && ` · ${pendingCount} waiting to sync`}
             </p>
           </div>
 
           <div className="flex flex-col items-end gap-1.5 ml-2 flex-shrink-0">
-            <button
+            <IconButton
+              label={searchMode ? 'Close search' : 'Search items'}
               onClick={() => { setSearchMode(!searchMode); setInputText(''); setSuggestions([]) }}
-              className={`text-base w-9 h-9 rounded-lg flex items-center justify-center ${searchMode ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}
+              className={searchMode ? 'bg-rose-100 text-rose-600' : ''}
             >
-              🔍
-            </button>
+              <Search size={18} />
+            </IconButton>
             {hasRegularsToAdd && !shoppingMode && !searchMode && (
-              <button onClick={addRegulars} className="text-xs px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 font-medium whitespace-nowrap">
-                + Regulars
+              <button onClick={addRegulars} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-xl bg-amber-100 text-amber-700 font-semibold whitespace-nowrap">
+                <Star size={13} fill="currentColor" />
+                Regulars
               </button>
             )}
           </div>
         </div>
 
-        <button
+        <Button
           onClick={() => setShoppingMode(!shoppingMode)}
-          className={`w-full py-3 rounded-xl font-semibold text-base ${
-            shoppingMode ? 'bg-gray-200 text-gray-700' : 'bg-green-400 text-white active:bg-green-500'
-          }`}
+          variant={shoppingMode ? 'secondary' : 'primary'}
+          className="w-full py-3 text-base"
         >
-          {shoppingMode ? '✓ Done shopping' : '🛒 Start shopping'}
-        </button>
+          {shoppingMode ? <Check size={18} /> : <ShoppingCart size={18} />}
+          {shoppingMode ? 'Done shopping' : 'Start shopping'}
+        </Button>
       </div>
 
       {/* Shopping mode progress */}
       {shoppingMode && (
-        <div className="px-5 pb-3">
-          <div className="flex items-center justify-between text-xs text-gray-400 mb-1.5">
+        <div className="sticky top-[9.5rem] z-10 bg-[var(--background)]/95 px-5 pb-3 backdrop-blur">
+          <div className="flex items-center justify-between text-xs text-stone-400 mb-1.5">
             <span>{checkedCount} of {totalCount} picked</span>
             <span>{Math.round(progress)}%</span>
           </div>
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-green-400 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+          <div className="w-full h-2 bg-white rounded-full overflow-hidden shadow-inner">
+            <div className="h-full bg-emerald-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
         </div>
       )}
@@ -727,7 +788,7 @@ export default function ListScreen({
       {!shoppingMode && (
         <div className="px-4 mb-1">
           <div className="flex gap-2">
-            <input
+            <TextInput
               ref={inputRef}
               type="text"
               placeholder={searchMode ? 'Search items...' : 'Add an item (or paste a list)...'}
@@ -749,32 +810,33 @@ export default function ListScreen({
                 if (e.key === 'Enter' && !searchMode) handleAddInput(inputText)
                 if (e.key === 'Escape' && searchMode) { setSearchMode(false); setInputText('') }
               }}
-              className="flex-1 px-4 py-4 rounded-xl border border-gray-200 text-base outline-none focus:border-green-400 bg-white"
+              className="flex-1"
               autoCapitalize="words"
               autoCorrect="off"
             />
             {searchMode ? (
               inputText && (
-                <button onClick={() => setInputText('')} className="px-4 bg-gray-200 text-gray-600 font-semibold rounded-xl">×</button>
+                <Button variant="secondary" onClick={() => setInputText('')} className="px-4">×</Button>
               )
             ) : (
-              <button onClick={() => handleAddInput(inputText)} className="px-5 bg-green-400 text-white font-semibold rounded-xl active:bg-green-500">
+              <Button onClick={() => handleAddInput(inputText)} className="px-5">
+                <Plus size={18} />
                 Add
-              </button>
+              </Button>
             )}
           </div>
 
           {!searchMode && suggestions.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl mt-1 overflow-hidden">
+            <div className="bg-white border border-rose-100 rounded-2xl mt-1 overflow-hidden shadow-sm shadow-rose-100">
               {suggestions.map(s => (
                 <button
                   key={s.name}
                   onClick={() => handleAddInput(s.name)}
-                  className="w-full text-left px-4 py-3 text-base text-gray-700 border-b border-gray-50 last:border-0 active:bg-gray-50 flex items-center gap-3"
+                  className="w-full text-left px-4 py-3 text-base text-stone-700 border-b border-rose-50 last:border-0 active:bg-rose-50 flex items-center gap-3"
                 >
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${CATEGORY_COLORS[inferCategory(s.name)]}`} />
                   <span className="flex-1">{s.name}</span>
-                  {s.is_recurring && <span className="text-amber-400 text-sm">★</span>}
+                  {s.is_recurring && <Star size={15} className="text-amber-400" fill="currentColor" />}
                 </button>
               ))}
             </div>
@@ -786,7 +848,7 @@ export default function ListScreen({
       <div className="flex-1 px-4 pt-2 pb-20">
         {loading && items.length === 0 ? (
           <div className="flex justify-center mt-20">
-            <div className="w-8 h-8 border-4 border-green-400 border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-4 border-rose-300 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : shoppingMode ? renderShoppingMode() : renderNormalMode()}
       </div>
@@ -812,6 +874,6 @@ export default function ListScreen({
           onDismiss={commitPendingDelete}
         />
       )}
-    </div>
+    </AppShell>
   )
 }

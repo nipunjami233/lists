@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { APP_NAME, APP_TAGLINE } from '@/lib/config'
+import { Button, TextInput } from './ui'
+import { Heart, LogIn, Mail, Sparkles } from 'lucide-react'
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('')
@@ -31,52 +33,62 @@ export default function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
+    <div className="min-h-dvh flex items-center justify-center bg-[var(--background)] px-6 py-10">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-gray-900">{APP_NAME}</h1>
-          <p className="text-gray-400 mt-2">{APP_TAGLINE}</p>
+        <div className="text-center mb-9">
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-gradient-to-br from-rose-400 via-pink-400 to-orange-300 text-white shadow-lg shadow-rose-200">
+            <Heart size={34} fill="currentColor" />
+          </div>
+          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-rose-500 shadow-sm shadow-rose-100">
+            <Sparkles size={13} />
+            Private household lists
+          </div>
+          <h1 className="text-4xl font-black text-stone-900">{APP_NAME}</h1>
+          <p className="text-stone-500 mt-2">{APP_TAGLINE}</p>
         </div>
 
         <div className="space-y-3">
-          <input
+          <TextInput
             type="email"
             placeholder="Email"
             value={email}
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAuth()}
-            className="w-full px-4 py-4 rounded-xl border border-gray-200 text-base outline-none focus:border-green-400 bg-white"
             autoCapitalize="none"
           />
-          <input
+          <TextInput
             type="password"
             placeholder="Password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAuth()}
-            className="w-full px-4 py-4 rounded-xl border border-gray-200 text-base outline-none focus:border-green-400 bg-white"
           />
 
           {error && (
-            <p className={`text-sm px-1 ${error.includes('created') ? 'text-green-600' : 'text-red-500'}`}>
+            <p className={`text-sm px-1 ${error.includes('created') ? 'text-emerald-600' : 'text-red-500'}`}>
               {error}
             </p>
           )}
 
-          <button
+          <Button
             onClick={handleAuth}
             disabled={loading}
-            className="w-full py-4 bg-green-400 text-white font-semibold rounded-xl text-base mt-2 disabled:opacity-60 active:bg-green-500"
+            className="w-full py-4 text-base mt-2"
           >
+            {isSignUp ? <Mail size={18} /> : <LogIn size={18} />}
             {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
-          </button>
+          </Button>
 
           <button
             onClick={() => { setIsSignUp(!isSignUp); setError('') }}
-            className="w-full text-center text-gray-400 text-sm py-2"
+            className="w-full text-center text-stone-400 text-sm py-2"
           >
             {isSignUp ? 'Already have an account? Sign in' : 'First time? Create an account'}
           </button>
+
+          <p className="px-2 pt-4 text-center text-xs leading-5 text-stone-400">
+            New accounts need to be added to the NK Household before they can see shared lists.
+          </p>
         </div>
       </div>
     </div>

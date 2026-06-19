@@ -3,9 +3,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { inferCategory, CATEGORIES, CATEGORY_COLORS, CATEGORY_TEXT } from '@/lib/categories'
+import {
+  DEFAULT_CATEGORIES,
+  getCategoryBg,
+  getCategoryBorder,
+  getCategoryText,
+  inferCategory,
+  withItemCategories,
+} from '@/lib/categories'
+import type { CategoryConfig } from '@/lib/categories'
 import { getCachedItems, setCachedItems, queueOp, flushPendingOps, getPendingOps } from '@/lib/cache'
 import { recordItemHistory, upsertRecurringItem } from '@/lib/household'
+import { getHouseholdCategories } from '@/lib/categorySettings'
 import type { Item } from '@/lib/types'
 import ItemActionSheet from './ItemActionSheet'
 import UndoSnackbar from './UndoSnackbar'
@@ -28,18 +37,6 @@ const SWIPE_THRESHOLD = 65
 const DIRECTION_LOCK_THRESHOLD = 8
 const LONG_PRESS_MS = 500
 const SWIPE_HINT_KEY = 'hasSeenSwipeHint'
-
-const CATEGORY_BORDER: Record<string, string> = {
-  'Produce':         '#4ade80',
-  'Dairy':           '#60a5fa',
-  'Meat & Fish':     '#f87171',
-  'Bakery & Grains': '#fbbf24',
-  'Frozen':          '#22d3ee',
-  'Drinks':          '#c084fc',
-  'Snacks':          '#fb923c',
-  'Household':       '#9ca3af',
-  'Other':           '#e5e7eb',
-}
 
 type PendingDeletion = { items: Item[]; message: string }
 
@@ -74,6 +71,7 @@ export default function ListScreen({
   const [showChecked, setShowChecked] = useState(false)
   const [pendingCount, setPendingCount] = useState(() => getPendingOps(listId).length)
   const [syncMessage, setSyncMessage] = useState('')
+  const [categories, setCategories] = useState<CategoryConfig[]>(DEFAULT_CATEGORIES)
 
   // Touch state
   const touchStart = useRef<Record<string, { x: number; y: number; lock: 'h' | 'v' | null; longPressTimer: ReturnType<typeof setTimeout> | null }>>({})
@@ -133,16 +131,23 @@ export default function ListScreen({
     if (data) setRecurringNames(new Set(data.map((d: { name: string }) => d.name.toLowerCase())))
   }, [])
 
+  const fetchCategories = useCallback(async () => {
+    const nextCategories = await getHouseholdCategories(householdId ?? null)
+    setCategories(nextCategories)
+  }, [householdId])
+
   useEffect(() => {
     // Initialize knownItemIds from cache so we don't flash everything on first load
     knownItemIds.current = new Set(getCachedItems(listId).map(i => i.id))
 
     fetchItems()
     fetchRecurring()
+    fetchCategories()
 
     const channel = supabase
       .channel(`items-realtime-${listId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, fetchItems)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'household_categories' }, fetchCategories)
       .subscribe()
 
     const handleOnline = async () => {
@@ -177,7 +182,7 @@ export default function ListScreen({
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [listId, fetchItems, fetchRecurring])
+  }, [listId, fetchItems, fetchRecurring, fetchCategories])
 
   useEffect(() => {
     if (!syncConflict) return
@@ -268,7 +273,7 @@ export default function ListScreen({
         id: crypto.randomUUID(),
         name,
         checked: false,
-        category: inferCategory(name),
+        category: inferCategory(name, categories),
         added_by: session.user.email ?? null,
         list_id: listId,
         updated_at: new Date().toISOString(),
@@ -439,7 +444,7 @@ export default function ListScreen({
       id: crypto.randomUUID(),
       name: r.name,
       checked: false,
-      category: inferCategory(r.name),
+      category: inferCategory(r.name, categories),
       added_by: session.user.email ?? null,
       list_id: listId,
       updated_at: new Date().toISOString(),
@@ -535,7 +540,7 @@ export default function ListScreen({
     const isSnapping = snappingItems.has(item.id)
     const isRenaming = renamingId === item.id
     const isFlashing = recentlyAddedIds.has(item.id)
-    const borderColor = CATEGORY_BORDER[item.category] ?? CATEGORY_BORDER['Other']
+    const borderColor = getCategoryBorder(item.category, categories)
 
     return (
       <div
@@ -618,17 +623,17 @@ export default function ListScreen({
 
   function renderShoppingMode() {
     const groups: { category: string; items: Item[] }[] = []
-    for (const cat of CATEGORIES) {
-      const catItems = unchecked.filter(i => (i.category || 'Other') === cat)
-      if (catItems.length > 0) groups.push({ category: cat, items: catItems })
+    for (const category of withItemCategories(categories, unchecked.map(item => item.category || 'Other'))) {
+      const catItems = unchecked.filter(i => (i.category || 'Other') === category.name)
+      if (catItems.length > 0) groups.push({ category: category.name, items: catItems })
     }
     return (
       <>
         {groups.map(({ category, items: groupItems }, gIdx) => (
           <div key={category}>
             <div className="flex items-center gap-2 px-1 pt-4 pb-2">
-              <span className={`w-2 h-2 rounded-full ${CATEGORY_COLORS[category]}`} />
-              <span className={`text-xs font-semibold uppercase tracking-wider ${CATEGORY_TEXT[category]}`}>
+              <span className={`w-2 h-2 rounded-full ${getCategoryBg(category, categories)}`} />
+              <span className={`text-xs font-semibold uppercase tracking-wider ${getCategoryText(category, categories)}`}>
                 {category}
               </span>
               <span className="text-xs font-medium text-stone-300">{groupItems.length}</span>
@@ -834,7 +839,7 @@ export default function ListScreen({
                   onClick={() => handleAddInput(s.name)}
                   className="w-full text-left px-4 py-3 text-base text-stone-700 border-b border-rose-50 last:border-0 active:bg-rose-50 flex items-center gap-3"
                 >
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${CATEGORY_COLORS[inferCategory(s.name)]}`} />
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getCategoryBg(inferCategory(s.name, categories), categories)}`} />
                   <span className="flex-1">{s.name}</span>
                   {s.is_recurring && <Star size={15} className="text-amber-400" fill="currentColor" />}
                 </button>
@@ -858,6 +863,7 @@ export default function ListScreen({
         <ItemActionSheet
           item={actionSheetItem}
           isStarred={recurringNames.has(actionSheetItem.name.toLowerCase())}
+          categories={withItemCategories(categories, items.map(item => item.category || 'Other'))}
           onClose={() => setActionSheetItem(null)}
           onRename={() => { setRenamingId(actionSheetItem.id); setRenameText(actionSheetItem.name) }}
           onToggleStar={() => toggleRecurring(actionSheetItem.name)}

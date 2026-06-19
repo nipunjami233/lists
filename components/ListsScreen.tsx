@@ -7,9 +7,10 @@ import { getHouseholdAccess, getListSummaries } from '@/lib/household'
 import type { HouseholdAccess, ListSummary } from '@/lib/types'
 import EmojiPicker from './EmojiPicker'
 import ListActionSheet from './ListActionSheet'
+import SettingsScreen from './SettingsScreen'
 import { APP_NAME, APP_TAGLINE } from '@/lib/config'
 import { AppShell, Badge, Button, TextInput } from './ui'
-import { LogOut, MoreHorizontal, Plus, Sparkles } from 'lucide-react'
+import { LogOut, MoreHorizontal, Plus, Settings, Sparkles } from 'lucide-react'
 
 type List = ListSummary
 
@@ -41,6 +42,7 @@ export default function ListsScreen({
   const [showProfile, setShowProfile] = useState(false)
   const [actionSheetList, setActionSheetList] = useState<List | null>(null)
   const [showHint, setShowHint] = useState(false)
+  const [screen, setScreen] = useState<'lists' | 'settings'>('lists')
 
   const longPressTimer = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
   const longPressFired = useRef<Record<string, boolean>>({})
@@ -153,6 +155,16 @@ export default function ListsScreen({
 
   const userInitial = (session.user.email?.[0] ?? '?').toUpperCase()
 
+  if (screen === 'settings') {
+    return (
+      <SettingsScreen
+        householdId={access?.status === 'member' ? access.householdId : null}
+        householdName={access?.status === 'member' ? access.householdName : undefined}
+        onBack={() => setScreen('lists')}
+      />
+    )
+  }
+
   if (!loading && access?.status === 'none') {
     return (
       <AppShell>
@@ -198,13 +210,20 @@ export default function ListsScreen({
             <>
               <div className="fixed inset-0 z-30" onClick={() => setShowProfile(false)} />
               <div className="absolute right-0 top-12 z-40 bg-white rounded-2xl shadow-lg border border-rose-100 min-w-[210px] overflow-hidden">
-                <div className="px-4 py-3 border-b border-rose-50">
-                  <p className="text-xs text-stone-400">Signed in as</p>
-                  <p className="text-sm text-stone-900 truncate">{session.user.email}</p>
-                </div>
-                <button
-                  onClick={() => supabase.auth.signOut()}
-                  className="w-full flex items-center gap-2 text-left px-4 py-3 text-sm text-red-500 active:bg-red-50"
+	                <div className="px-4 py-3 border-b border-rose-50">
+	                  <p className="text-xs text-stone-400">Signed in as</p>
+	                  <p className="text-sm text-stone-900 truncate">{session.user.email}</p>
+	                </div>
+	                <button
+	                  onClick={() => { setShowProfile(false); setScreen('settings') }}
+	                  className="w-full flex items-center gap-2 text-left px-4 py-3 text-sm text-stone-700 active:bg-rose-50"
+	                >
+	                  <Settings size={16} />
+	                  Manage categories
+	                </button>
+	                <button
+	                  onClick={() => supabase.auth.signOut()}
+	                  className="w-full flex items-center gap-2 text-left px-4 py-3 text-sm text-red-500 active:bg-red-50"
                 >
                   <LogOut size={16} />
                   Sign out

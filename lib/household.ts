@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import type { HouseholdAccess, ListSummary } from './types'
 
-function isMissingMigration(error: { message?: string; code?: string } | null) {
+export function isMissingMigration(error: { message?: string; code?: string } | null) {
   if (!error) return false
   const message = error.message?.toLowerCase() ?? ''
   return error.code === '42P01' || message.includes('does not exist') || message.includes('schema cache')

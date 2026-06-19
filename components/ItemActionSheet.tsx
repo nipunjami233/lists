@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { CATEGORIES, CATEGORY_COLORS } from '@/lib/categories'
+import { getCategoryBg } from '@/lib/categories'
+import type { CategoryConfig } from '@/lib/categories'
 import type { Item } from '@/lib/types'
 import { SheetFrame } from './ui'
 import { Check, ChevronLeft, ChevronRight, Circle, Pencil, Star, Trash2 } from 'lucide-react'
@@ -9,6 +10,7 @@ import { Check, ChevronLeft, ChevronRight, Circle, Pencil, Star, Trash2 } from '
 export default function ItemActionSheet({
   item,
   isStarred,
+  categories,
   onClose,
   onRename,
   onToggleStar,
@@ -17,6 +19,7 @@ export default function ItemActionSheet({
 }: {
   item: Item
   isStarred: boolean
+  categories: CategoryConfig[]
   onClose: () => void
   onRename: () => void
   onToggleStar: () => void
@@ -43,15 +46,15 @@ export default function ItemActionSheet({
               <p className="text-xs uppercase tracking-wider text-stone-400 pr-3">Pick category</p>
             </div>
             <div className="px-2 pb-2">
-              {CATEGORIES.map(cat => (
+              {categories.map(category => (
                 <button
-                  key={cat}
-                  onClick={() => { onChangeCategory(cat); onClose() }}
+                  key={category.name}
+                  onClick={() => { onChangeCategory(category.name); onClose() }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl active:bg-rose-50"
                 >
-                  <span className={`w-3 h-3 rounded-full ${CATEGORY_COLORS[cat]}`} />
-                  <span className="text-base text-stone-900 flex-1 text-left">{cat}</span>
-                  {item.category === cat && <Check size={18} className="text-emerald-500" />}
+                  <span className={`w-3 h-3 rounded-full ${getCategoryBg(category.name, categories)}`} />
+                  <span className="text-base text-stone-900 flex-1 text-left">{category.name}</span>
+                  {item.category === category.name && <Check size={18} className="text-emerald-500" />}
                 </button>
               ))}
             </div>
@@ -66,7 +69,7 @@ export default function ItemActionSheet({
               onClick={() => { onToggleStar(); onClose() }}
             />
             <SheetButton
-              icon={<Circle size={14} className={CATEGORY_COLORS[item.category].replace('bg-', 'text-')} fill="currentColor" />}
+              icon={<Circle size={14} className={getCategoryBg(item.category, categories).replace('bg-', 'text-')} fill="currentColor" />}
               label="Change category"
               onClick={() => setShowCategories(true)}
               showChevron

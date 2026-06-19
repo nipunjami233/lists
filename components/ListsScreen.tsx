@@ -280,26 +280,49 @@ export default function ListsScreen({
                   <EmojiPicker selected={renameEmoji} onSelect={setRenameEmoji} />
                 </div>
               ) : (
-                <button
+                <div
                   key={list.id}
-                  onClick={() => handleListClick(list)}
-                  onTouchStart={() => handleListTouchStart(list)}
-                  onTouchEnd={() => handleListTouchEnd(list)}
-                  onTouchMove={() => handleListTouchMove(list)}
-                  onTouchCancel={() => handleListTouchEnd(list)}
-                  onContextMenu={e => { e.preventDefault(); setActionSheetList(list) }}
-                  className="w-full flex items-center gap-4 bg-white px-4 py-4 rounded-[1.4rem] text-left shadow-sm shadow-rose-100 active:bg-rose-50"
+                  className="flex w-full items-stretch overflow-hidden rounded-[1.4rem] bg-white shadow-sm shadow-rose-100"
                 >
-                  <span className="text-2xl">{list.emoji ?? '📋'}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-base font-bold text-stone-900 truncate">{list.name}</p>
-                    <p className="text-sm text-stone-400">
-                      {list.unchecked_count} left · {list.item_count} total
-                    </p>
-                  </div>
-                  {list.unchecked_count === 0 && list.item_count > 0 && <Badge tone="green">Done</Badge>}
-                  <MoreHorizontal size={20} className="text-stone-300" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleListClick(list)}
+                    onTouchStart={() => handleListTouchStart(list)}
+                    onTouchEnd={() => handleListTouchEnd(list)}
+                    onTouchMove={() => handleListTouchMove(list)}
+                    onTouchCancel={() => handleListTouchEnd(list)}
+                    onContextMenu={e => { e.preventDefault(); setActionSheetList(list) }}
+                    className="flex min-w-0 flex-1 items-center gap-4 px-4 py-4 text-left active:bg-rose-50"
+                  >
+                    <span className="text-2xl">{list.emoji ?? '📋'}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-bold text-stone-900">{list.name}</p>
+                      <p className="text-sm text-stone-400">
+                        {list.unchecked_count} left · {list.item_count} total
+                      </p>
+                    </div>
+                    {list.unchecked_count === 0 && list.item_count > 0 && <Badge tone="green">Done</Badge>}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`More actions for ${list.name}`}
+                    title={`More actions for ${list.name}`}
+                    onClick={e => {
+                      e.stopPropagation()
+                      handleListTouchEnd(list)
+                      setActionSheetList(list)
+                    }}
+                    onTouchStart={e => e.stopPropagation()}
+                    onContextMenu={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setActionSheetList(list)
+                    }}
+                    className="flex w-14 flex-shrink-0 items-center justify-center text-stone-400 active:bg-rose-50"
+                  >
+                    <MoreHorizontal size={20} />
+                  </button>
+                </div>
               )
             ))}
 

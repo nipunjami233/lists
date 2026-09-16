@@ -37,6 +37,7 @@ const SWIPE_THRESHOLD = 65
 const DIRECTION_LOCK_THRESHOLD = 8
 const LONG_PRESS_MS = 500
 const SWIPE_HINT_KEY = 'hasSeenSwipeHint'
+const ITEM_NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 type PendingDeletion = { items: Item[]; message: string }
 
@@ -524,8 +525,12 @@ export default function ListScreen({
   const filteredItems = searchActive
     ? items.filter(i => i.name.toLowerCase().includes(inputText.toLowerCase()))
     : items
-  const unchecked = filteredItems.filter(i => !i.checked)
-  const checked = filteredItems.filter(i => i.checked)
+  const unchecked = filteredItems
+    .filter(i => !i.checked)
+    .sort((a, b) => ITEM_NAME_COLLATOR.compare(a.name, b.name))
+  const checked = filteredItems
+    .filter(i => i.checked)
+    .sort((a, b) => ITEM_NAME_COLLATOR.compare(a.name, b.name))
   const totalCount = items.length
   const checkedCount = items.filter(i => i.checked).length
   const progress = totalCount > 0 ? (checkedCount / totalCount) * 100 : 0
@@ -621,26 +626,30 @@ export default function ListScreen({
 
   // ── Renderers ────────────────────────────────────────────────
 
-  function renderShoppingMode() {
+  function renderCategoryGroups() {
     const groups: { category: string; items: Item[] }[] = []
     for (const category of withItemCategories(categories, unchecked.map(item => item.category || 'Other'))) {
       const catItems = unchecked.filter(i => (i.category || 'Other') === category.name)
       if (catItems.length > 0) groups.push({ category: category.name, items: catItems })
     }
+    return groups.map(({ category, items: groupItems }, gIdx) => (
+      <div key={category}>
+        <div className="flex items-center gap-2 px-1 pt-4 pb-2">
+          <span className={`w-2 h-2 rounded-full ${getCategoryBg(category, categories)}`} />
+          <span className={`text-xs font-semibold uppercase tracking-wider ${getCategoryText(category, categories)}`}>
+            {category}
+          </span>
+          <span className="text-xs font-medium text-stone-300">{groupItems.length}</span>
+        </div>
+        {groupItems.map((item, idx) => renderItem(item, gIdx === 0 && idx === 0))}
+      </div>
+    ))
+  }
+
+  function renderShoppingMode() {
     return (
       <>
-        {groups.map(({ category, items: groupItems }, gIdx) => (
-          <div key={category}>
-            <div className="flex items-center gap-2 px-1 pt-4 pb-2">
-              <span className={`w-2 h-2 rounded-full ${getCategoryBg(category, categories)}`} />
-              <span className={`text-xs font-semibold uppercase tracking-wider ${getCategoryText(category, categories)}`}>
-                {category}
-              </span>
-              <span className="text-xs font-medium text-stone-300">{groupItems.length}</span>
-            </div>
-            {groupItems.map((item, idx) => renderItem(item, gIdx === 0 && idx === 0))}
-          </div>
-        ))}
+        {renderCategoryGroups()}
         {checked.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-stone-300 uppercase tracking-wider px-1 pt-4 pb-2">Done</p>
@@ -679,7 +688,9 @@ export default function ListScreen({
 
     return (
       <>
-        {unchecked.map((item, idx) => renderItem(item, idx === 0))}
+        {searchActive
+          ? unchecked.map((item, idx) => renderItem(item, idx === 0))
+          : renderCategoryGroups()}
         {checked.length > 0 && (
           <>
             <div className="flex items-center justify-between pt-4 pb-2 px-1">

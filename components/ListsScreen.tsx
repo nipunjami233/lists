@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { getHouseholdAccess, getListSummaries } from '@/lib/household'
+import { getHouseholdAccess, getListSummaries, markListUsed } from '@/lib/household'
 import type { HouseholdAccess, ListSummary } from '@/lib/types'
 import EmojiPicker from './EmojiPicker'
 import ListActionSheet from './ListActionSheet'
@@ -151,6 +151,7 @@ export default function ListsScreen({
       return
     }
     onSelectList(list)
+    void markListUsed(list.id)
   }
 
   const userInitial = (session.user.email?.[0] ?? '?').toUpperCase()

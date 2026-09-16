@@ -25,7 +25,8 @@ create table public.lists (
   household_id uuid not null references public.households(id) on delete cascade,
   name text not null,
   emoji text,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 create table public.items (
@@ -120,9 +121,38 @@ create trigger items_updated_at
   before update on public.items
   for each row execute function public.update_updated_at();
 
+create trigger lists_updated_at
+  before update on public.lists
+  for each row execute function public.update_updated_at();
+
 create trigger household_categories_updated_at
   before update on public.household_categories
   for each row execute function public.update_updated_at();
+
+create or replace function public.touch_list_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if tg_op = 'DELETE' then
+    update public.lists set updated_at = now() where id = old.list_id;
+    return old;
+  end if;
+
+  update public.lists set updated_at = now() where id = new.list_id;
+
+  if tg_op = 'UPDATE' and old.list_id is distinct from new.list_id then
+    update public.lists set updated_at = now() where id = old.list_id;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger items_touch_list_updated_at
+  after insert or update or delete on public.items
+  for each row execute function public.touch_list_updated_at();
 
 drop function if exists public.upsert_item_history(text);
 
@@ -169,12 +199,12 @@ as $$
     l.household_id,
     count(i.id) as item_count,
     count(i.id) filter (where coalesce(i.checked, false) = false) as unchecked_count,
-    max(i.updated_at) as last_activity
+    l.updated_at as last_activity
   from public.lists l
   left join public.items i on i.list_id = l.id
   where public.is_household_member(l.household_id)
-  group by l.id, l.name, l.emoji, l.created_at, l.household_id
-  order by max(i.updated_at) desc nulls last, l.name asc;
+  group by l.id, l.name, l.emoji, l.created_at, l.updated_at, l.household_id
+  order by l.updated_at desc, l.name asc;
 $$;
 
 create or replace function public.rename_household_category(

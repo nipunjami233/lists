@@ -64,7 +64,10 @@ export async function getListSummariesLegacy(): Promise<ListSummary[]> {
         household_id: list.household_id ?? null,
         item_count: total ?? 0,
         unchecked_count: unchecked ?? 0,
-        last_activity: latest?.updated_at ?? null,
+        last_activity: [list.updated_at, latest?.updated_at, list.created_at]
+          .filter(Boolean)
+          .sort()
+          .at(-1) ?? null,
       }
     })
   )
@@ -88,6 +91,13 @@ export async function getListSummaries(): Promise<ListSummary[]> {
     item_count: Number(list.item_count ?? 0),
     unchecked_count: Number(list.unchecked_count ?? 0),
   }))
+}
+
+export async function markListUsed(listId: string) {
+  await supabase
+    .from('lists')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', listId)
 }
 
 export async function recordItemHistory(itemName: string, householdId: string | null) {

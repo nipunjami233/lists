@@ -628,7 +628,12 @@ export default function ListScreen({
 
   function renderCategoryGroups() {
     const groups: { category: string; items: Item[] }[] = []
-    for (const category of withItemCategories(categories, unchecked.map(item => item.category || 'Other'))) {
+    const alphabeticalCategories = withItemCategories(
+      categories,
+      unchecked.map(item => item.category || 'Other')
+    ).sort((a, b) => ITEM_NAME_COLLATOR.compare(a.name, b.name))
+
+    for (const category of alphabeticalCategories) {
       const catItems = unchecked.filter(i => (i.category || 'Other') === category.name)
       if (catItems.length > 0) groups.push({ category: category.name, items: catItems })
     }
@@ -646,16 +651,40 @@ export default function ListScreen({
     ))
   }
 
+  function renderCheckedSection(label: string, allowClear: boolean) {
+    if (checked.length === 0) return null
+    const collapseChecked = !searchActive && !showChecked
+
+    return (
+      <>
+        <div className="flex items-center justify-between pt-4 pb-2 px-1">
+          <button
+            onClick={() => setShowChecked(!showChecked)}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-stone-300 uppercase tracking-wider"
+          >
+            {label} ({checked.length})
+            {collapseChecked ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+          <div className="flex items-center gap-2">
+            {collapseChecked && <Badge tone="stone">Hidden</Badge>}
+            {allowClear && !searchActive && (
+              <button onClick={clearCheckedWithUndo} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-xl bg-red-50 text-red-500 font-medium">
+                <Trash2 size={13} />
+                Clear all
+              </button>
+            )}
+          </div>
+        </div>
+        {!collapseChecked && checked.map(item => renderItem(item))}
+      </>
+    )
+  }
+
   function renderShoppingMode() {
     return (
       <>
         {renderCategoryGroups()}
-        {checked.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-stone-300 uppercase tracking-wider px-1 pt-4 pb-2">Done</p>
-            {checked.map(item => renderItem(item))}
-          </div>
-        )}
+        {renderCheckedSection('Done', false)}
       </>
     )
   }
@@ -684,36 +713,18 @@ export default function ListScreen({
 
   function renderNormalMode() {
     if (filteredItems.length === 0) return renderEmptyState()
-    const collapseChecked = !searchActive && checked.length > 8 && !showChecked
 
     return (
       <>
-        {searchActive
-          ? unchecked.map((item, idx) => renderItem(item, idx === 0))
-          : renderCategoryGroups()}
-        {checked.length > 0 && (
+        {unchecked.length > 0 && (
           <>
-            <div className="flex items-center justify-between pt-4 pb-2 px-1">
-              <button
-                onClick={() => setShowChecked(!showChecked)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-stone-300 uppercase tracking-wider"
-              >
-                Checked off ({checked.length})
-                {collapseChecked ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-              </button>
-              <div className="flex items-center gap-2">
-                {collapseChecked && <Badge tone="stone">Hidden</Badge>}
-                {!searchActive && (
-                <button onClick={clearCheckedWithUndo} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-xl bg-red-50 text-red-500 font-medium">
-                  <Trash2 size={13} />
-                  Clear all
-                </button>
-                )}
-              </div>
+            <div className="px-1 pt-4 pb-2 text-xs font-semibold uppercase tracking-wider text-stone-300">
+              Unchecked ({unchecked.length})
             </div>
-            {!collapseChecked && checked.map(item => renderItem(item))}
+            {unchecked.map((item, idx) => renderItem(item, idx === 0))}
           </>
         )}
+        {renderCheckedSection('Checked', true)}
       </>
     )
   }
@@ -778,7 +789,10 @@ export default function ListScreen({
         </div>
 
         <Button
-          onClick={() => setShoppingMode(!shoppingMode)}
+          onClick={() => {
+            setShoppingMode(!shoppingMode)
+            setShowChecked(false)
+          }}
           variant={shoppingMode ? 'secondary' : 'primary'}
           className="w-full py-3 text-base"
         >
